@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.googlecloud.pubsub.grpc.javadsl
@@ -14,14 +14,21 @@ import com.google.pubsub.v1.{PublisherClient => JavaPublisherClient}
 /**
  * Holds the gRPC java publisher client instance.
  */
-final class GrpcPublisher(sys: ActorSystem, mat: Materializer) {
-  private final val pubSubConfig = PubSubSettings(sys)
+final class GrpcPublisher private (settings: PubSubSettings, sys: ActorSystem, mat: Materializer) {
 
   @ApiMayChange
   final val client =
-    JavaPublisherClient.create(AkkaGrpcSettings.fromPubSubConfig(pubSubConfig)(sys), mat, sys.dispatcher)
+    JavaPublisherClient.create(AkkaGrpcSettings.fromPubSubSettings(settings)(sys), mat, sys.dispatcher)
 
   sys.registerOnTermination(client.close())
+}
+
+object GrpcPublisher {
+  def create(settings: PubSubSettings, sys: ActorSystem, mat: Materializer): GrpcPublisher =
+    new GrpcPublisher(settings, sys, mat)
+
+  def create(sys: ActorSystem, mat: Materializer): GrpcPublisher =
+    create(PubSubSettings(sys), sys, mat)
 }
 
 /**
@@ -30,7 +37,7 @@ final class GrpcPublisher(sys: ActorSystem, mat: Materializer) {
 final class GrpcPublisherExt private (sys: ExtendedActorSystem) extends Extension {
   private[this] val systemMaterializer = ActorMaterializer()(sys)
 
-  implicit val publisher = new GrpcPublisher(sys, systemMaterializer)
+  implicit val publisher = GrpcPublisher.create(sys, systemMaterializer)
 }
 
 object GrpcPublisherExt extends ExtensionId[GrpcPublisherExt] with ExtensionIdProvider {

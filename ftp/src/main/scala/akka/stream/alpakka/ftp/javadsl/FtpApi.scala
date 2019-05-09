@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.ftp.javadsl
@@ -95,7 +95,11 @@ sealed trait FtpApi[FtpClient] { _: FtpSourceFactory[FtpClient] =>
       basePath: String,
       connectionSettings: S
   ): Source[FtpFile, NotUsed] =
-    ScalaSource.fromGraph(createBrowserGraph(basePath, connectionSettings, f => true)).asJava
+    ScalaSource
+      .fromGraph(
+        createBrowserGraph(basePath, connectionSettings, f => true, _emitTraversedDirectories = false)
+      )
+      .asJava
 
   /**
    * Java API: creates a [[akka.stream.javadsl.Source Source]] of [[FtpFile]]s from a base path.
@@ -104,7 +108,7 @@ sealed trait FtpApi[FtpClient] { _: FtpSourceFactory[FtpClient] =>
    * @param connectionSettings connection settings
    * @param branchSelector a predicate for pruning the tree. Takes a remote folder and return true
    *                       if you want to enter that remote folder.
-   *                       Default behaviour is full recursiv which is equivalent with calling this function
+   *                       Default behaviour is full recursive which is equivalent with calling this function
    *                       with [[ls(basePath,connectionSettings,f->true)]].
    *
    *                       Calling [[ls(basePath,connectionSettings,f->false)]] will emit only the files and folder in
@@ -113,7 +117,38 @@ sealed trait FtpApi[FtpClient] { _: FtpSourceFactory[FtpClient] =>
    * @return A [[akka.stream.javadsl.Source Source]] of [[FtpFile]]s
    */
   def ls(basePath: String, connectionSettings: S, branchSelector: Predicate[FtpFile]): Source[FtpFile, NotUsed] =
-    Source.fromGraph(createBrowserGraph(basePath, connectionSettings, asScalaFromPredicate(branchSelector)))
+    Source.fromGraph(
+      createBrowserGraph(
+        basePath,
+        connectionSettings,
+        asScalaFromPredicate(branchSelector),
+        _emitTraversedDirectories = false
+      )
+    )
+
+  /**
+   * Java API: creates a [[akka.stream.javadsl.Source Source]] of [[FtpFile]]s from a base path.
+   *
+   * @param basePath Base path from which traverse the remote file server
+   * @param connectionSettings connection settings
+   * @param branchSelector a predicate for pruning the tree. Takes a remote folder and return true
+   *                       if you want to enter that remote folder.
+   *                       Default behaviour is full recursive which is equivalent with calling this function
+   *                       with [[ls(basePath,connectionSettings,f->true)]].
+   *
+   *                       Calling [[ls(basePath,connectionSettings,f->false)]] will emit only the files and folder in
+   *                       non-recursive fashion
+   * @param emitTraversedDirectories whether to include entered directories in the stream
+   *
+   * @return A [[akka.stream.javadsl.Source Source]] of [[FtpFile]]s
+   */
+  def ls(basePath: String,
+         connectionSettings: S,
+         branchSelector: Predicate[FtpFile],
+         emitTraversedDirectories: Boolean): Source[FtpFile, NotUsed] =
+    Source.fromGraph(
+      createBrowserGraph(basePath, connectionSettings, asScalaFromPredicate(branchSelector), emitTraversedDirectories)
+    )
 
   /**
    * Java API: creates a [[akka.stream.javadsl.Source Source]] of [[akka.util.ByteString ByteString]] from some file path.
@@ -170,9 +205,29 @@ sealed trait FtpApi[FtpClient] { _: FtpSourceFactory[FtpClient] =>
       path: String,
       connectionSettings: S,
       chunkSize: Int = DefaultChunkSize
+  ): Source[ByteString, CompletionStage[IOResult]] =
+    fromPath(path, connectionSettings, chunkSize, 0L)
+
+  /**
+   * Java API: creates a [[akka.stream.javadsl.Source Source]] of [[akka.util.ByteString ByteString]] from some file path.
+   *
+   * @param path the file path
+   * @param connectionSettings connection settings
+   * @param chunkSize the size of transmitted [[akka.util.ByteString ByteString]] chunks
+   * @param offset the offset into the remote file at which to start the file transfer
+   * @return A [[akka.stream.javadsl.Source Source]] of [[akka.util.ByteString ByteString]] that materializes to a [[java.util.concurrent.CompletionStage CompletionStage]] of [[IOResult]]
+   */
+  def fromPath(
+      path: String,
+      connectionSettings: S,
+      chunkSize: Int,
+      offset: Long
   ): Source[ByteString, CompletionStage[IOResult]] = {
     import scala.compat.java8.FutureConverters._
-    ScalaSource.fromGraph(createIOSource(path, connectionSettings, chunkSize)).mapMaterializedValue(_.toJava).asJava
+    ScalaSource
+      .fromGraph(createIOSource(path, connectionSettings, chunkSize, offset))
+      .mapMaterializedValue(_.toJava)
+      .asJava
   }
 
   /**

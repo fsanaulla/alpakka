@@ -4,6 +4,7 @@ import sbt.plugins.JvmPlugin
 import org.scalafmt.sbt.ScalafmtPlugin.autoImport._
 import de.heikoseeberger.sbtheader._
 import de.heikoseeberger.sbtheader.HeaderPlugin.autoImport._
+import com.lightbend.paradox.projectinfo.ParadoxProjectInfoPluginKeys._
 import Whitesource.whitesourceGroup
 
 object Common extends AutoPlugin {
@@ -12,21 +13,27 @@ object Common extends AutoPlugin {
 
   override def requires = JvmPlugin && HeaderPlugin
 
-  override lazy val projectSettings =
-  Dependencies.Common ++ Seq(
+  override def globalSettings = Seq(
     organization := "com.lightbend.akka",
     organizationName := "Lightbend Inc.",
-    homepage := Some(url("https://developer.lightbend.com/docs/alpakka/current/")),
+    organizationHomepage := Some(url("https://www.lightbend.com/")),
+    homepage := Some(url("https://doc.akka.io/docs/alpakka/current/")),
+    apiURL := Some(url(s"https://doc.akka.io/api/alpakka/${version.value}")),
     scmInfo := Some(ScmInfo(url("https://github.com/akka/alpakka"), "git@github.com:akka/alpakka.git")),
     developers += Developer("contributors",
                             "Contributors",
                             "https://gitter.im/akka/dev",
                             url("https://github.com/akka/alpakka/graphs/contributors")),
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
+    description := "Alpakka is a Reactive Enterprise Integration library for Java and Scala, based on Reactive Streams and Akka.",
+  )
+
+  override lazy val projectSettings = Dependencies.Common ++ Seq(
+    projectInfoVersion := (if (isSnapshot.value) "snapshot" else version.value),
     whitesourceGroup := Whitesource.Group.Community,
     crossVersion := CrossVersion.binary,
     crossScalaVersions := Dependencies.ScalaVersions,
-    scalaVersion := crossScalaVersions.value.head,
+    scalaVersion := Dependencies.Scala212,
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",
@@ -35,11 +42,14 @@ object Common extends AutoPlugin {
       "-deprecation",
       //"-Xfatal-warnings",
       "-Xlint",
-      "-Yno-adapted-args",
       "-Ywarn-dead-code",
       "-Xfuture",
       "-target:jvm-1.8"
     ),
+    scalacOptions ++= (scalaVersion.value match {
+      case Dependencies.Scala213 => Seq.empty[String]
+      case _ => Seq("-Yno-adapted-args")
+    }),
     Compile / doc / scalacOptions := scalacOptions.value ++ Seq(
       "-doc-title",
       "Alpakka",
@@ -48,7 +58,7 @@ object Common extends AutoPlugin {
       "-sourcepath",
       (baseDirectory in ThisBuild).value.toString,
       "-doc-source-url", {
-        val branch = if (isSnapshot.value) "master" else s"v$version"
+        val branch = if (isSnapshot.value) "master" else s"v${version.value}"
         s"https://github.com/akka/alpakka/tree/${branch}€{FILE_PATH}.scala#L1"
       },
       "-skip-packages",
@@ -62,7 +72,7 @@ object Common extends AutoPlugin {
       "-Xlint:unchecked"
     ),
     autoAPIMappings := true,
-    apiURL := Some(url(s"http://developer.lightbend.com/docs/api/alpakka/${version.value}")),
+    apiURL := Some(url(s"https://doc.akka.io/api/alpakka/${version.value}/akka/stream/alpakka/index.html")),
     // show full stack traces and test case durations
     testOptions in Test += Tests.Argument("-oDF"),
     // -a Show stack traces and exception class name for AssertionErrors.
@@ -74,6 +84,6 @@ object Common extends AutoPlugin {
     // timeout.
     testOptions in Test += Tests.Argument(TestFrameworks.ScalaTest, "-F", "4"),
     scalafmtOnCompile := true,
-    headerLicense := Some(HeaderLicense.Custom("Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>"))
+    headerLicense := Some(HeaderLicense.Custom("Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>"))
   )
 }

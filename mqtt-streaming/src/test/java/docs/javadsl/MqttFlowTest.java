@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package docs.javadsl;
@@ -10,8 +10,10 @@ import akka.actor.ActorSystem;
 import akka.japi.JavaPartialFunction;
 import akka.japi.Pair;
 import akka.stream.ActorMaterializer;
+import akka.stream.KillSwitches;
 import akka.stream.Materializer;
 import akka.stream.OverflowStrategy;
+import akka.stream.UniqueKillSwitch;
 import akka.stream.alpakka.mqtt.streaming.Command;
 import akka.stream.alpakka.mqtt.streaming.ConnAck;
 import akka.stream.alpakka.mqtt.streaming.ConnAckFlags;
@@ -39,8 +41,10 @@ import akka.stream.javadsl.Source;
 import akka.stream.javadsl.SourceQueueWithComplete;
 import akka.stream.javadsl.Tcp;
 import akka.stream.javadsl.BroadcastHub;
+import akka.stream.testkit.javadsl.StreamTestKit;
 import akka.testkit.javadsl.TestKit;
 import akka.util.ByteString;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -49,6 +53,7 @@ import scala.collection.JavaConverters;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
@@ -59,6 +64,8 @@ import java.util.stream.Collectors;
 import static org.junit.Assert.assertEquals;
 
 public class MqttFlowTest {
+
+  private static int TIMEOUT_SECONDS = 5;
 
   private static ActorSystem system;
   private static Materializer materializer;
@@ -81,6 +88,11 @@ public class MqttFlowTest {
     TestKit.shutdownActorSystem(system);
   }
 
+  @After
+  public void assertStageStopping() {
+    StreamTestKit.assertAllStagesStopped(materializer);
+  }
+
   @Test
   public void establishClientBidirectionalConnectionAndSubscribeToATopic()
       throws InterruptedException, ExecutionException, TimeoutException {
@@ -95,7 +107,7 @@ public class MqttFlowTest {
         Tcp.get(system).outgoingConnection("localhost", 1883);
 
     Flow<Command<Object>, DecodeErrorOrEvent<Object>, NotUsed> mqttFlow =
-        Mqtt.clientSessionFlow(session).join(connection);
+        Mqtt.clientSessionFlow(session, ByteString.fromString("1")).join(connection);
     // #create-streaming-flow
 
     // #run-streaming-flow
@@ -126,9 +138,16 @@ public class MqttFlowTest {
     // #run-streaming-flow
 
     CompletionStage<Publish> event = run.second();
-    Publish publishEvent = event.toCompletableFuture().get(3, TimeUnit.SECONDS);
+    Publish publishEvent = event.toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
     assertEquals(publishEvent.topicName(), topic);
     assertEquals(publishEvent.payload(), ByteString.fromString("ohi"));
+
+    // #run-streaming-flow
+
+    // for shutting down properly
+    commands.complete();
+    commands.watchCompletion().thenAccept(done -> session.shutdown());
+    // #run-streaming-flow
   }
 
   @Test
@@ -188,12 +207,14 @@ public class MqttFlowTest {
                                 JavaConverters.asJavaCollectionConverter(subscribe.topicFilters())
                                     .asJavaCollection();
                             List<Integer> flags =
-                                topicFilters
-                                    .stream()
+                                topicFilters.stream()
                                     .map(x -> x._2().underlying())
                                     .collect(Collectors.toList());
-                            queue.offer(new Command<>(new SubAck(subscribe.packetId(), flags)));
-                            subscribed.complete(Done.getInstance());
+                            queue.offer(
+                                new Command<>(
+                                    new SubAck(subscribe.packetId(), flags),
+                                    Optional.of(subscribed),
+                                    Optional.empty()));
                           } else if (cp instanceof Publish) {
                             Publish publish = (Publish) cp;
                             if ((publish.flags() & ControlPacketFlags.RETAIN()) != 0) {
@@ -211,11 +232,14 @@ public class MqttFlowTest {
     // #create-streaming-bind-flow
 
     // #run-streaming-bind-flow
-    CompletionStage<Tcp.ServerBinding> bound =
-        bindSource.toMat(Sink.ignore(), Keep.left()).run(materializer);
+    Pair<CompletionStage<Tcp.ServerBinding>, UniqueKillSwitch> bindingAndSwitch =
+        bindSource.viaMat(KillSwitches.single(), Keep.both()).to(Sink.ignore()).run(materializer);
+
+    CompletionStage<Tcp.ServerBinding> bound = bindingAndSwitch.first();
+    UniqueKillSwitch server = bindingAndSwitch.second();
     // #run-streaming-bind-flow
 
-    bound.toCompletableFuture().get(3, TimeUnit.SECONDS);
+    bound.toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
 
     Flow<ByteString, ByteString, CompletionStage<Tcp.OutgoingConnection>> connection =
         Tcp.get(system).outgoingConnection(host, port);
@@ -223,7 +247,7 @@ public class MqttFlowTest {
     MqttClientSession clientSession = new ActorMqttClientSession(settings, materializer, system);
 
     Flow<Command<Object>, DecodeErrorOrEvent<Object>, NotUsed> mqttFlow =
-        Mqtt.clientSessionFlow(clientSession).join(connection);
+        Mqtt.clientSessionFlow(clientSession, ByteString.fromString("1")).join(connection);
 
     Pair<SourceQueueWithComplete<Command<Object>>, CompletionStage<Publish>> run =
         Source.<Command<Object>>queue(3, OverflowStrategy.fail())
@@ -251,8 +275,15 @@ public class MqttFlowTest {
                 ByteString.fromString("ohi"))));
 
     CompletionStage<Publish> event = run.second();
-    Publish publish = event.toCompletableFuture().get(3, TimeUnit.SECONDS);
+    Publish publish = event.toCompletableFuture().get(TIMEOUT_SECONDS, TimeUnit.SECONDS);
     assertEquals(publish.topicName(), topic);
     assertEquals(publish.payload(), ByteString.fromString("ohi"));
+
+    // #run-streaming-bind-flow
+
+    // for shutting down properly
+    server.shutdown();
+    commands.watchCompletion().thenAccept(done -> session.shutdown());
+    // #run-streaming-bind-flow
   }
 }

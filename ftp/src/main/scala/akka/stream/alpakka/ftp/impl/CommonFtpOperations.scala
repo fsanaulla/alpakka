@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.ftp.impl
@@ -7,6 +7,7 @@ package akka.stream.alpakka.ftp.impl
 import java.io.{IOException, InputStream, OutputStream}
 import java.nio.file.Paths
 import java.nio.file.attribute.PosixFilePermission
+import java.util.TimeZone
 
 import akka.annotation.InternalApi
 import akka.stream.alpakka.ftp.FtpFile
@@ -23,17 +24,22 @@ private[ftp] trait CommonFtpOperations {
   type Handler = FTPClient
 
   def listFiles(basePath: String, handler: Handler): immutable.Seq[FtpFile] = {
-    val path = if (!basePath.isEmpty && basePath.head != '/') s"/$basePath" else basePath
+    val path = if (!basePath.isEmpty && basePath.head != '/') s"/$basePath" else if (basePath == "/") "" else basePath
     handler
       .listFiles(path)
       .collect {
         case file: FTPFile if file.getName != "." && file.getName != ".." =>
+          val calendar = file.getTimestamp
+          calendar.setTimeZone(TimeZone.getTimeZone("UTC"))
           FtpFile(
             file.getName,
-            Paths.get(s"$path/${file.getName}").normalize.toString,
+            if (java.io.File.separatorChar == '\\')
+              Paths.get(s"$path/${file.getName}").normalize.toString.replace('\\', '/')
+            else
+              Paths.get(s"$path/${file.getName}").normalize.toString,
             file.isDirectory,
             file.getSize,
-            file.getTimestamp.getTimeInMillis,
+            calendar.getTimeInMillis,
             getPosixFilePermissions(file)
           )
       }
@@ -57,7 +63,11 @@ private[ftp] trait CommonFtpOperations {
 
   def listFiles(handler: Handler): immutable.Seq[FtpFile] = listFiles("", handler)
 
-  def retrieveFileInputStream(name: String, handler: Handler): Try[InputStream] = Try {
+  def retrieveFileInputStream(name: String, handler: Handler): Try[InputStream] =
+    retrieveFileInputStream(name, handler, 0L)
+
+  def retrieveFileInputStream(name: String, handler: Handler, offset: Long): Try[InputStream] = Try {
+    handler.setRestartOffset(offset)
     val is = handler.retrieveFileStream(name)
     if (is != null) is else throw new IOException(s"$name: No such file or directory")
   }
@@ -72,4 +82,7 @@ private[ftp] trait CommonFtpOperations {
 
   def remove(path: String, handler: Handler): Unit =
     handler.deleteFile(path)
+
+  def completePendingCommand(handler: Handler): Boolean =
+    handler.completePendingCommand()
 }

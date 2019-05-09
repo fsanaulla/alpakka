@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package docs.scaladsl
@@ -185,6 +185,24 @@ class XmlWritingSpec extends WordSpec with Matchers with BeforeAndAfterAll with 
       val resultFuture: Future[String] = Source.fromIterator[ParseEvent](() => listEl.iterator).runWith(writer)
       resultFuture.futureValue(Timeout(3.seconds)) should ===(doc)
       // #writer-usage
+    }
+
+    "properly process a string that is not a full document" in {
+      val listEl: List[ParseEvent] = List(
+        StartElement("doc"),
+        StartElement("elem"),
+        Characters("elem1"),
+        EndElement("elem"),
+        StartElement("elem"),
+        Characters("elem2"),
+        EndElement("elem"),
+        EndElement("doc")
+      )
+
+      val doc = "<doc><elem>elem1</elem><elem>elem2</elem></doc>"
+      val resultFuture: Future[String] = Source.fromIterator[ParseEvent](() => listEl.iterator).runWith(writer)
+
+      resultFuture.futureValue(Timeout(20.seconds)) should ===(doc)
     }
 
   }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.dynamodb
@@ -8,55 +8,52 @@ import akka.actor.ActorSystem
 import akka.stream._
 import akka.stream.alpakka.dynamodb.scaladsl._
 import akka.stream.scaladsl.Sink
+import akka.stream.testkit.scaladsl.StreamTestKit.assertAllStagesStopped
 import akka.testkit.TestKit
 import org.scalatest._
 
 import scala.collection.JavaConverters._
+import scala.concurrent.ExecutionContext
 
 class ItemSpec extends TestKit(ActorSystem("ItemSpec")) with AsyncWordSpecLike with Matchers with BeforeAndAfterAll {
 
-  implicit val materializer = ActorMaterializer()
-  implicit val ec = system.dispatcher
+  implicit val materializer: ActorMaterializer = ActorMaterializer()
+  implicit val ec: ExecutionContext = system.dispatcher
 
-  val settings = DynamoSettings(system)
-
-  override def beforeAll() = {
+  override def beforeAll(): Unit = {
     System.setProperty("aws.accessKeyId", "someKeyId")
     System.setProperty("aws.secretKey", "someSecretKey")
   }
 
-  "DynamoDB with external client" should {
+  "DynamoDB" should {
 
-    import DynamoImplicits._
     import ItemSpecOps._
 
-    implicit val client = DynamoClient(settings)
-
-    "1) list zero tables" in {
-      DynamoDbExternal.single(listTablesRequest).map(_.getTableNames.asScala.count(_ == tableName) shouldBe 0)
+    "1) list zero tables" in assertAllStagesStopped {
+      DynamoDb.single(listTablesRequest).map(_.getTableNames.asScala.count(_ == tableName) shouldBe 0)
     }
 
-    "2) create a table" in {
-      DynamoDbExternal.single(createTableRequest).map(_.getTableDescription.getTableStatus shouldBe "ACTIVE")
+    "2) create a table" in assertAllStagesStopped {
+      DynamoDb.single(createTableRequest).map(_.getTableDescription.getTableStatus shouldBe "ACTIVE")
     }
 
-    "3) find a new table" in {
-      DynamoDbExternal.single(listTablesRequest).map(_.getTableNames.asScala.count(_ == tableName) shouldBe 1)
+    "3) find a new table" in assertAllStagesStopped {
+      DynamoDb.single(listTablesRequest).map(_.getTableNames.asScala.count(_ == tableName) shouldBe 1)
     }
 
-    "4) put an item and read it back" in {
-      DynamoDbExternal
+    "4) put an item and read it back" in assertAllStagesStopped {
+      DynamoDb
         .single(test4PutItemRequest)
-        .flatMap(_ => DynamoDbExternal.single(getItemRequest))
+        .flatMap(_ => DynamoDb.single(getItemRequest))
         .map(_.getItem.get("data").getS shouldEqual "test4data")
     }
 
-    "5) put two items in a batch" in {
-      DynamoDbExternal.single(batchWriteItemRequest).map(_.getUnprocessedItems.size() shouldEqual 0)
+    "5) put two items in a batch" in assertAllStagesStopped {
+      DynamoDb.single(batchWriteItemRequest).map(_.getUnprocessedItems.size() shouldEqual 0)
     }
 
-    "6) query two items with page size equal to 1" in {
-      DynamoDbExternal
+    "6) query two items with page size equal to 1" in assertAllStagesStopped {
+      DynamoDb
         .source(queryItemsRequest)
         .filterNot(_.getItems.isEmpty)
         .map(_.getItems)
@@ -71,17 +68,37 @@ class ItemSpec extends TestKit(ActorSystem("ItemSpec")) with AsyncWordSpecLike w
         }
     }
 
-    "7) delete an item" in {
-      DynamoDbExternal
+    "7) delete an item" in assertAllStagesStopped {
+      DynamoDb
         .single(deleteItemRequest)
-        .flatMap(_ => DynamoDbExternal.single(getItemRequest))
-        .map(_.getItem() shouldEqual null)
+        .flatMap(_ => DynamoDb.single(getItemRequest))
+        .map(_.getItem shouldEqual null)
     }
 
-    "8) delete table" in {
-      DynamoDbExternal
+    // The next 3 tests are ignored as DynamoDB Local does not support transactions; they
+    // succeed against a cloud instance so can be enabled once local support is available.
+
+    "8) put two items in a transaction" ignore assertAllStagesStopped {
+      DynamoDb.single(transactPutItemsRequest).map(_ => succeed)
+    }
+
+    "9) get two items in a transaction" ignore assertAllStagesStopped {
+      DynamoDb.single(transactGetItemsRequest).map { results =>
+        results.getResponses.size shouldBe 2
+        val responses = results.getResponses.asScala
+        responses.head.getItem.get(sortCol) shouldEqual N(0)
+        responses.last.getItem.get(sortCol) shouldEqual N(1)
+      }
+    }
+
+    "10) delete two items in a transaction" ignore assertAllStagesStopped {
+      DynamoDb.single(transactDeleteItemsRequest).map(_ => succeed)
+    }
+
+    "11) delete table" in assertAllStagesStopped {
+      DynamoDb
         .single(deleteTableRequest)
-        .flatMap(_ => DynamoDbExternal.single(listTablesRequest))
+        .flatMap(_ => DynamoDb.single(listTablesRequest))
         .map(_.getTableNames.asScala.count(_ == tableName) shouldEqual 0)
     }
 

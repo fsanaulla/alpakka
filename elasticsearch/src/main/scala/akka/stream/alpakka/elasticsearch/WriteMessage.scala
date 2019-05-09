@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.elasticsearch
@@ -14,7 +14,9 @@ import scala.compat.java8.OptionConverters._
  * INTERNAL API
  */
 @InternalApi
-private[elasticsearch] sealed abstract class Operation(val command: String)
+private[elasticsearch] sealed abstract class Operation(val command: String) {
+  override def toString: String = command
+}
 
 /**
  * INTERNAL API
@@ -22,6 +24,7 @@ private[elasticsearch] sealed abstract class Operation(val command: String)
 @InternalApi
 private[elasticsearch] object Operation {
   object Index extends Operation("index")
+  object Create extends Operation("create")
   object Update extends Operation("update")
   object Upsert extends Operation("update")
   object Delete extends Operation("delete")
@@ -110,6 +113,9 @@ object WriteMessage {
   def createIndexMessage[T](id: String, source: T): WriteMessage[T, NotUsed] =
     new WriteMessage(Index, id = Option(id), source = Option(source))
 
+  def createCreateMessage[T](id: String, source: T): WriteMessage[T, NotUsed] =
+    new WriteMessage(Create, id = Option(id), source = Option(source))
+
   def createUpdateMessage[T](id: String, source: T): WriteMessage[T, NotUsed] =
     new WriteMessage(Update, id = Option(id), source = Option(source))
 
@@ -128,11 +134,21 @@ object WriteMessage {
  * [[akka.stream.alpakka.elasticsearch.testkit.MessageFactory]].
  */
 final class WriteResult[T2, C2] @InternalApi private[elasticsearch] (val message: WriteMessage[T2, C2],
+                                                                     /** JSON structure of the Elasticsearch error. */
                                                                      val error: Option[String]) {
   val success: Boolean = error.isEmpty
 
-  /** Java API */
+  /** Java API: JSON structure of the Elasticsearch error. */
   def getError: java.util.Optional[String] = error.asJava
+
+  /** `reason` field value of the Elasticsearch error. */
+  def errorReason: Option[String] = {
+    import spray.json._
+    error.flatMap(_.parseJson.asJsObject.fields.get("reason").map(_.asInstanceOf[JsString].value))
+  }
+
+  /** Java API: `reason` field value from the Elasticsearch error */
+  def getErrorReason: java.util.Optional[String] = errorReason.asJava
 
   override def toString =
     s"""WriteResult(message=$message,error=$error)"""

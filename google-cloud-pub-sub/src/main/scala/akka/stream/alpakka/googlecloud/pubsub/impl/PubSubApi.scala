@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.googlecloud.pubsub.impl
@@ -66,7 +66,11 @@ private[pubsub] trait PubSubApi {
     DefaultJsonProtocol.jsonFormat1(AcknowledgeRequest.apply)
   private implicit val pullRequestFormat = DefaultJsonProtocol.jsonFormat2(PubSubApi.PullRequest)
 
-  def pull(project: String, subscription: String, maybeAccessToken: Option[String], apiKey: String)(
+  def pull(project: String,
+           subscription: String,
+           maybeAccessToken: Option[String],
+           returnImmediately: Boolean,
+           maxMessages: Int)(
       implicit as: ActorSystem,
       materializer: Materializer
   ): Future[PullResponse] = {
@@ -74,7 +78,7 @@ private[pubsub] trait PubSubApi {
 
     val uri: Uri = s"$PubSubGoogleApisHost/v1/projects/$project/subscriptions/$subscription:pull"
 
-    val request = PubSubApi.PullRequest(returnImmediately = true, maxMessages = 1000)
+    val request = PubSubApi.PullRequest(returnImmediately = returnImmediately, maxMessages = maxMessages)
 
     for {
       request <- Marshal((HttpMethods.POST, uri, request)).to[HttpRequest]
@@ -83,11 +87,10 @@ private[pubsub] trait PubSubApi {
     } yield pullResponse
   }
 
-  def acknowledge(project: String,
-                  subscription: String,
-                  maybeAccessToken: Option[String],
-                  apiKey: String,
-                  request: AcknowledgeRequest)(implicit as: ActorSystem, materializer: Materializer): Future[Unit] = {
+  def acknowledge(project: String, subscription: String, maybeAccessToken: Option[String], request: AcknowledgeRequest)(
+      implicit as: ActorSystem,
+      materializer: Materializer
+  ): Future[Unit] = {
     import materializer.executionContext
 
     val url: Uri =
@@ -111,11 +114,7 @@ private[pubsub] trait PubSubApi {
       maybeAccessToken.map(accessToken => request.addCredentials(OAuth2BearerToken(accessToken))).getOrElse(request)
     )
 
-  def publish(project: String,
-              topic: String,
-              maybeAccessToken: Option[String],
-              apiKey: String,
-              request: PublishRequest)(
+  def publish(project: String, topic: String, maybeAccessToken: Option[String], request: PublishRequest)(
       implicit as: ActorSystem,
       materializer: Materializer
   ): Future[immutable.Seq[String]] = {

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.sqs
@@ -12,6 +12,12 @@ final class SqsBatchException @InternalApi private[sqs] (val batchSize: Int, mes
   @InternalApi
   private[sqs] def this(batchSize: Int, cause: Throwable) {
     this(batchSize, cause.getMessage)
+    initCause(cause)
+  }
+
+  @InternalApi
+  private[sqs] def this(batchSize: Int, message: String, cause: Throwable) {
+    this(batchSize, message)
     initCause(cause)
   }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package docs.javadsl;
@@ -11,11 +11,12 @@ import akka.stream.alpakka.awslambda.javadsl.AwsLambdaFlow;
 import akka.stream.javadsl.Flow;
 import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
+import akka.stream.testkit.javadsl.StreamTestKit;
 import akka.testkit.javadsl.TestKit;
-import com.amazonaws.handlers.AsyncHandler;
-import com.amazonaws.services.lambda.AWSLambdaAsyncClient;
-import com.amazonaws.services.lambda.model.InvokeRequest;
-import com.amazonaws.services.lambda.model.InvokeResult;
+import software.amazon.awssdk.services.lambda.LambdaAsyncClient;
+import software.amazon.awssdk.services.lambda.model.InvokeRequest;
+import software.amazon.awssdk.services.lambda.model.InvokeResponse;
+import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -35,13 +36,13 @@ public class AwsLambdaFlowTest {
 
   private static ActorSystem system;
   private static ActorMaterializer materializer;
-  private static AWSLambdaAsyncClient awsLambdaClient;
+  private static LambdaAsyncClient awsLambdaClient;
 
   @BeforeClass
   public static void setup() {
     system = ActorSystem.create();
     materializer = ActorMaterializer.create(system);
-    awsLambdaClient = mock(AWSLambdaAsyncClient.class);
+    awsLambdaClient = mock(LambdaAsyncClient.class);
   }
 
   @AfterClass
@@ -49,20 +50,23 @@ public class AwsLambdaFlowTest {
     TestKit.shutdownActorSystem(system);
   }
 
+  @After
+  public void checkForStageLeaks() {
+    StreamTestKit.assertAllStagesStopped(materializer);
+  }
+
   @Test
   public void lambdaFlow() throws Exception {
-    InvokeRequest invokeRequest = new InvokeRequest();
-    InvokeResult invokeResult = new InvokeResult();
-    when(awsLambdaClient.invokeAsync(eq(invokeRequest), any()))
+    InvokeRequest invokeRequest = InvokeRequest.builder().build();
+    InvokeResponse invokeResponse = InvokeResponse.builder().build();
+    when(awsLambdaClient.invoke(eq(invokeRequest)))
         .thenAnswer(
             invocation -> {
-              AsyncHandler<InvokeRequest, InvokeResult> handler = invocation.getArgument(1);
-              handler.onSuccess(invokeRequest, invokeResult);
-              return new CompletableFuture<>();
+              return CompletableFuture.completedFuture(invokeResponse);
             });
-    Flow<InvokeRequest, InvokeResult, NotUsed> flow = AwsLambdaFlow.create(awsLambdaClient, 1);
+    Flow<InvokeRequest, InvokeResponse, NotUsed> flow = AwsLambdaFlow.create(awsLambdaClient, 1);
     Source<InvokeRequest, NotUsed> source = Source.single(invokeRequest);
-    final CompletionStage<List<InvokeResult>> stage =
+    final CompletionStage<List<InvokeResponse>> stage =
         source.via(flow).runWith(Sink.seq(), materializer);
     assertEquals(1, stage.toCompletableFuture().get(3, TimeUnit.SECONDS).size());
   }

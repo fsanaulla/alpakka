@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.xml.scaladsl
@@ -27,7 +27,7 @@ object XmlParsing {
     Flow.fromGraph(new impl.StreamingXmlParser(ignoreInvalidChars))
 
   /**
-   * A Flow that transforms a stream of XML ParseEvents. This stage coalesces consequitive CData and Characters
+   * A Flow that transforms a stream of XML ParseEvents. This stage coalesces consecutive CData and Characters
    * events into a single Characters event or fails if the buffered string is larger than the maximum defined.
    */
   def coalesce(maximumTextLength: Int): Flow[ParseEvent, ParseEvent, NotUsed] =

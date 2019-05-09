@@ -1,18 +1,16 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.jms
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
-import akka.NotUsed
 import akka.stream.OverflowStrategy
 import akka.stream.alpakka.jms.scaladsl.JmsConnectorState._
 import akka.stream.alpakka.jms.scaladsl.{JmsConnectorState, JmsConsumer, JmsProducer, JmsProducerStatus}
 import akka.stream.scaladsl.{Flow, Keep, Sink, SinkQueueWithCancel, Source}
 import javax.jms._
-import org.apache.activemq.ActiveMQConnectionFactory
 import org.mockito.ArgumentMatchers.{any, anyBoolean, anyInt}
 import org.mockito.Mockito._
 import org.mockito.invocation.InvocationOnMock
@@ -27,8 +25,7 @@ class JmsConnectionStatusSpec extends JmsSpec {
 
   "JmsConnector connection status" should {
 
-    "report disconnected on producer stream failure" in withServer() { ctx =>
-      val connectionFactory: javax.jms.ConnectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "report disconnected on producer stream failure" in withConnectionFactory() { connectionFactory =>
       val connectedLatch = new CountDownLatch(1)
 
       val jmsSink = textSink(JmsProducerSettings(producerConfig, connectionFactory).withQueue("test"))
@@ -225,8 +222,7 @@ class JmsConnectionStatusSpec extends JmsSpec {
       status should havePublishedState(Connected)
     }
 
-    "report disconnected on consumer stream failure" in withServer() { ctx =>
-      val connectionFactory: javax.jms.ConnectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "report disconnected on consumer stream failure" in withConnectionFactory() { connectionFactory =>
       val connectedLatch = new CountDownLatch(1)
       val exception = new RuntimeException("failing stage")
 
@@ -257,9 +253,7 @@ class JmsConnectionStatusSpec extends JmsSpec {
       eventually { status should havePublishedState(Completed) }
     }
 
-    "report completion on stream shutdown / cancel" in withServer() { ctx =>
-      val connectionFactory: javax.jms.ConnectionFactory = new ActiveMQConnectionFactory(ctx.url)
-
+    "report completion on stream shutdown / cancel" in withConnectionFactory() { connectionFactory =>
       val jmsSink = textSink(
         JmsProducerSettings(producerConfig, connectionFactory)
           .withQueue("test")
@@ -289,8 +283,7 @@ class JmsConnectionStatusSpec extends JmsSpec {
       eventually { producerConnected should havePublishedState(Completed) }
     }
 
-    "report failure on external stream abort" in withServer() { ctx =>
-      val connectionFactory: javax.jms.ConnectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "report failure on external stream abort" in withConnectionFactory() { connectionFactory =>
       val exception = new RuntimeException("aborting stream")
 
       val jmsSource = JmsConsumer.textSource(
@@ -310,9 +303,8 @@ class JmsConnectionStatusSpec extends JmsSpec {
       consumerConnected should havePublishedState(Failed(exception))
     }
 
-    "reflect connection status on connection retries" in withServer() { ctx =>
-      val connectionFactory: javax.jms.ConnectionFactory = new ActiveMQConnectionFactory(ctx.url)
-
+    "reflect connection status on connection retries" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
       val jmsSink = textSink(
         JmsProducerSettings(producerConfig, connectionFactory)
           .withQueue("test")
@@ -350,12 +342,12 @@ class JmsConnectionStatusSpec extends JmsSpec {
         eventually { consumerConnected should havePublishedState(Connected) }
         eventually { producerConnected should havePublishedState(Connected) }
 
-        ctx.broker.stop()
+        server.stop()
 
         eventually { consumerConnected should havePublishedState(Disconnected) }
         eventually { producerConnected should havePublishedState(Disconnected) }
 
-        ctx.broker.start(true)
+        server.restart()
       }
 
       eventually { consumerConnected should havePublishedState(Connected) }
@@ -365,8 +357,8 @@ class JmsConnectionStatusSpec extends JmsSpec {
 
   private def textSink(settings: JmsProducerSettings): Sink[String, JmsProducerStatus] =
     Flow[String]
-      .map(s => JmsProducerMessage.message(JmsTextMessage(s), NotUsed))
-      .viaMat(JmsProducer.flexiFlow(settings))(Keep.right)
+      .map(s => JmsTextMessage(s))
+      .viaMat(JmsProducer.flow(settings))(Keep.right)
       .to(Sink.ignore)
 
   class ConnectionStateMatcher(expectedState: JmsConnectorState)

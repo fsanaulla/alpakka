@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.ftp
@@ -85,9 +85,12 @@ private[ftp] trait SftpOperations { _: FtpLike[SSHClient, SftpSettings] =>
 
   def listFiles(handler: Handler): immutable.Seq[FtpFile] = listFiles(".", handler)
 
-  def retrieveFileInputStream(name: String, handler: Handler): Try[InputStream] = Try {
-    val remoteFile = handler.open(name, Set(OpenMode.READ).asJava)
-    val is = new remoteFile.RemoteFileInputStream() {
+  def retrieveFileInputStream(name: String, handler: Handler): Try[InputStream] =
+    retrieveFileInputStream(name, handler, 0L)
+
+  def retrieveFileInputStream(name: String, handler: Handler, offset: Long): Try[InputStream] = Try {
+    val remoteFile = handler.open(name, java.util.EnumSet.of(OpenMode.READ))
+    val is = new remoteFile.RemoteFileInputStream(offset) {
 
       override def close(): Unit =
         try {
@@ -104,8 +107,9 @@ private[ftp] trait SftpOperations { _: FtpLike[SSHClient, SftpSettings] =>
 
   def storeFileOutputStream(name: String, handler: Handler, append: Boolean): Try[OutputStream] = Try {
     import OpenMode._
-    val openModes = Set(WRITE, CREAT) ++ (if (append) Set(APPEND) else Set())
-    val remoteFile = handler.open(name, openModes.asJava)
+    val openModes =
+      if (append) java.util.EnumSet.of(WRITE, CREAT, APPEND) else java.util.EnumSet.of(WRITE, CREAT, TRUNC)
+    val remoteFile = handler.open(name, openModes)
     val os = new remoteFile.RemoteFileOutputStream() {
 
       override def close(): Unit = {

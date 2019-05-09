@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.jms.impl
@@ -101,9 +101,12 @@ trait JmsConnector[S <: JmsSession] {
 
   protected def connectionFailed(ex: Throwable): Unit = ex match {
     case ex: jms.JMSSecurityException =>
-      log.error(ex,
-                "{} initializing connection failed, security settings are not properly configured",
-                attributes.nameLifted.mkString)
+      log.error(
+        ex,
+        "{} initializing connection failed, security settings are not properly configured for destination[{}]",
+        attributes.nameLifted.mkString,
+        destination.name
+      )
       publishAndFailStage(ex)
 
     case _: jms.JMSException | _: JmsConnectTimedOut => handleRetriableException(ex)
@@ -112,7 +115,7 @@ trait JmsConnector[S <: JmsSession] {
       connectionState match {
         case _: JmsConnectorStopping | _: JmsConnectorStopped => logStoppingException(ex)
         case _ =>
-          log.error(ex, "{} connection failed", attributes.nameLifted.mkString)
+          log.error(ex, "{} connection failed for destination[{}]", attributes.nameLifted.mkString, destination.name)
           publishAndFailStage(ex)
       }
   }
@@ -163,7 +166,10 @@ trait JmsConnector[S <: JmsSession] {
       }
 
     case Failure(ex) =>
-      log.error(ex, "{} initializing connection failed", attributes.nameLifted.mkString)
+      log.error(ex,
+                "{} initializing connection failed for destination[{}]",
+                attributes.nameLifted.mkString,
+                destination.name)
       publishAndFailStage(ex)
   }
 
@@ -177,7 +183,10 @@ trait JmsConnector[S <: JmsSession] {
       val exception =
         if (maxRetries == 0) ex
         else ConnectionRetryException(s"Could not establish connection after $maxRetries retries.", ex)
-      log.error(exception, "{} initializing connection failed", attributes.nameLifted.mkString)
+      log.error(exception,
+                "{} initializing connection failed for destination[{}]",
+                attributes.nameLifted.mkString,
+                destination.name)
       publishAndFailStage(exception)
     } else {
       val status = updateState(JmsConnectorDisconnected)
@@ -196,15 +205,18 @@ trait JmsConnector[S <: JmsSession] {
   }
 
   protected def executionContext(attributes: Attributes): ExecutionContext = {
-    val dispatcher = attributes.get[ActorAttributes.Dispatcher](
-      ActorAttributes.Dispatcher("akka.stream.default-blocking-io-dispatcher")
-    ) match {
+    val dispatcherId = (attributes.get[ActorAttributes.Dispatcher](ActorAttributes.IODispatcher) match {
       case ActorAttributes.Dispatcher("") =>
-        ActorAttributes.Dispatcher("akka.stream.default-blocking-io-dispatcher")
+        ActorAttributes.IODispatcher
       case d => d
+    }) match {
+      case d @ ActorAttributes.IODispatcher =>
+        // this one is not a dispatcher id, but is a config path pointing to the dispatcher id
+        ActorMaterializerHelper.downcast(materializer).system.settings.config.getString(d.dispatcher)
+      case d => d.dispatcher
     }
 
-    ActorMaterializerHelper.downcast(materializer).system.dispatchers.lookup(dispatcher.dispatcher)
+    ActorMaterializerHelper.downcast(materializer).system.dispatchers.lookup(dispatcherId)
   }
 
   protected def createSession(connection: jms.Connection, createDestination: jms.Session => jms.Destination): S

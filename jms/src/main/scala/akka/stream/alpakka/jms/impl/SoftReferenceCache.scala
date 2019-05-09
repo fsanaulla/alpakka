@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.jms.impl
@@ -36,5 +36,5 @@ private final class SoftReferenceCache[K, V <: AnyRef] {
   }
 
   private def purgeCache(): Unit =
-    cache --= cache.collect { case (key, ref) if ref.get.isEmpty => key }.to[Vector]
+    cache --= cache.collect { case (key, ref) if ref.get.isEmpty => key }.toVector
 }

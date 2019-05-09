@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.jms.javadsl;
@@ -14,12 +14,11 @@ import akka.stream.javadsl.Sink;
 import akka.stream.javadsl.Source;
 import akka.testkit.javadsl.TestKit;
 import com.typesafe.config.Config;
-import org.apache.activemq.ActiveMQConnectionFactory;
-import org.apache.activemq.broker.BrokerService;
 import org.apache.activemq.command.ActiveMQQueue;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import jmstestkit.JmsBroker;
 
 import javax.jms.ConnectionFactory;
 import javax.jms.JMSException;
@@ -58,12 +57,11 @@ public class JmsAckConnectorsTest {
     List<Integer> intsIn = Arrays.asList(1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
     List<JmsTextMessage> msgsIn = new ArrayList<>();
     for (Integer n : intsIn) {
-      Map<String, Object> properties = new HashMap<>();
-      properties.put("Number", n);
-      properties.put("IsOdd", n % 2 == 1);
-      properties.put("IsEven", n % 2 == 0);
-
-      msgsIn.add(JmsTextMessage.create(n.toString(), properties));
+      msgsIn.add(
+          JmsTextMessage.create(n.toString())
+              .withProperty("Number", n)
+              .withProperty("IsOdd", n % 2 == 1)
+              .withProperty("IsEven", n % 2 == 0));
     }
 
     return msgsIn;
@@ -72,8 +70,8 @@ public class JmsAckConnectorsTest {
   @Test
   public void publishAndConsume() throws Exception {
     withServer(
-        ctx -> {
-          ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(ctx.url);
+        server -> {
+          ConnectionFactory connectionFactory = server.createConnectionFactory();
 
           Sink<String, CompletionStage<Done>> jmsSink =
               JmsProducer.textSink(
@@ -108,11 +106,11 @@ public class JmsAckConnectorsTest {
   @Test
   public void publishAndConsumeJmsTextMessagesWithProperties() throws Exception {
     withServer(
-        ctx -> {
-          ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(ctx.url);
+        server -> {
+          ConnectionFactory connectionFactory = server.createConnectionFactory();
 
           Sink<JmsTextMessage, CompletionStage<Done>> jmsSink =
-              JmsProducer.create(
+              JmsProducer.sink(
                   JmsProducerSettings.create(producerConfig, connectionFactory).withQueue("test"));
 
           List<JmsTextMessage> msgsIn = createTestMessageList();
@@ -166,11 +164,11 @@ public class JmsAckConnectorsTest {
   @Test
   public void publishAndConsumeJmsTextMessagesWithHeaders() throws Exception {
     withServer(
-        ctx -> {
-          ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(ctx.url);
+        server -> {
+          ConnectionFactory connectionFactory = server.createConnectionFactory();
 
           Sink<JmsTextMessage, CompletionStage<Done>> jmsSink =
-              JmsProducer.create(
+              JmsProducer.sink(
                   JmsProducerSettings.create(producerConfig, connectionFactory).withQueue("test"));
 
           List<JmsTextMessage> msgsIn =
@@ -234,11 +232,11 @@ public class JmsAckConnectorsTest {
   @Test
   public void publishJmsTextMessagesWithPropertiesAndConsumeThemWithASelector() throws Exception {
     withServer(
-        ctx -> {
-          ConnectionFactory connectionFactory = new ActiveMQConnectionFactory(ctx.url);
+        server -> {
+          ConnectionFactory connectionFactory = server.createConnectionFactory();
 
           Sink<JmsTextMessage, CompletionStage<Done>> jmsSink =
-              JmsProducer.create(
+              JmsProducer.sink(
                   JmsProducerSettings.create(producerConfig, connectionFactory).withQueue("test"));
 
           List<JmsTextMessage> msgsIn = createTestMessageList();
@@ -301,8 +299,8 @@ public class JmsAckConnectorsTest {
   @Test
   public void publishAndConsumeTopic() throws Exception {
     withServer(
-        ctx -> {
-          ActiveMQConnectionFactory connectionFactory = new ActiveMQConnectionFactory(ctx.url);
+        server -> {
+          ConnectionFactory connectionFactory = server.createConnectionFactory();
 
           List<String> in = Arrays.asList("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k");
           List<String> inNumbers =
@@ -363,38 +361,18 @@ public class JmsAckConnectorsTest {
         });
   }
 
-  private void withServer(ConsumerChecked<Context> test) throws Exception {
-    BrokerService broker = new BrokerService();
-    broker.setPersistent(false);
-    String host = "localhost";
-    Integer port = akka.testkit.SocketUtil.temporaryServerAddress(host, false).getPort();
-    broker.setBrokerName(host);
-    broker.setUseJmx(false);
-    String url = "tcp://" + host + ":" + port;
-    broker.addConnector(url);
-    broker.start();
+  private void withServer(ConsumerChecked<JmsBroker> test) throws Exception {
+    JmsBroker broker = JmsBroker.apply();
     try {
-      test.accept(new Context(url, broker));
+      test.accept(broker);
       Thread.sleep(500);
     } finally {
-      if (broker.isStarted()) {
-        broker.stop();
-      }
+      broker.stop();
     }
   }
 
   @FunctionalInterface
   private interface ConsumerChecked<T> {
     void accept(T elt) throws Exception;
-  }
-
-  private static class Context {
-    final String url;
-    final BrokerService broker;
-
-    public Context(String url, BrokerService broker) {
-      this.url = url;
-      this.broker = broker;
-    }
   }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.ftp
@@ -43,9 +43,19 @@ protected[ftp] trait FtpLike[FtpClient, S <: RemoteFileSettings] {
  * INTERNAL API
  */
 @InternalApi
+protected[ftp] trait RetrieveOffset { _: FtpLike[_, _] =>
+
+  def retrieveFileInputStream(name: String, handler: Handler, offset: Long): Try[InputStream]
+
+}
+
+/**
+ * INTERNAL API
+ */
+@InternalApi
 object FtpLike {
   // type class instances
-  implicit val ftpLikeInstance = new FtpLike[FTPClient, FtpSettings] with FtpOperations
-  implicit val ftpsLikeInstance = new FtpLike[FTPSClient, FtpsSettings] with FtpsOperations
-  implicit val sFtpLikeInstance = new FtpLike[SSHClient, SftpSettings] with SftpOperations
+  implicit val ftpLikeInstance = new FtpLike[FTPClient, FtpSettings] with RetrieveOffset with FtpOperations
+  implicit val ftpsLikeInstance = new FtpLike[FTPSClient, FtpsSettings] with RetrieveOffset with FtpsOperations
+  implicit val sFtpLikeInstance = new FtpLike[SSHClient, SftpSettings] with RetrieveOffset with SftpOperations
 }

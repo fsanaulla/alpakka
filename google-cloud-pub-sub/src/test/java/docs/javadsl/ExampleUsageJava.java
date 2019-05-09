@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package docs.javadsl;
@@ -47,7 +47,7 @@ public class ExampleUsageJava {
     String projectId = "test-XXXXX";
     String apiKey = "AIzaSyCVvqrlz057gCssc70n5JERyTW4TpB4ebE";
 
-    PubSubConfig config = PubSubConfig.create(projectId, apiKey, clientEmail, privateKey, system);
+    PubSubConfig config = PubSubConfig.create(projectId, clientEmail, privateKey, system);
 
     String topic = "topic1";
     String subscription = "subscription1";

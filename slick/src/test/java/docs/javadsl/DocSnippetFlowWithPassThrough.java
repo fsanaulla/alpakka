@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package docs.javadsl;
@@ -79,7 +79,7 @@ public class DocSnippetFlowWithPassThrough {
                 Slick.flowWithPassThrough(
                     session,
                     system.dispatcher(),
-                    // add an optional second argument to specify the parallism factor (int)
+                    // add an optional second argument to specify the parallelism factor (int)
                     (kafkaMessage) ->
                         "INSERT INTO ALPAKKA_SLICK_JAVADSL_TEST_USERS VALUES ("
                             + kafkaMessage.msg.id

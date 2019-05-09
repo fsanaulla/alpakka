@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.googlecloud.pubsub.grpc.impl
@@ -14,7 +14,7 @@ import com.typesafe.config.ConfigFactory
  * Internal API
  */
 @InternalApi private[grpc] object AkkaGrpcSettings {
-  def fromPubSubConfig(config: PubSubSettings)(implicit sys: ActorSystem): GrpcClientSettings = {
+  def fromPubSubSettings(config: PubSubSettings)(implicit sys: ActorSystem): GrpcClientSettings = {
     val sslConfig = config.rootCa.fold("") { rootCa =>
       s"""
       |ssl-config {

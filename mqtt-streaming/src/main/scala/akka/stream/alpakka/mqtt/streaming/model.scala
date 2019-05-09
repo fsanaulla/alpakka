@@ -1,13 +1,14 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.mqtt.streaming
 import java.nio.ByteOrder
 import java.nio.charset.StandardCharsets
 import java.util.{NoSuchElementException, Optional}
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{CompletionStage, ForkJoinPool, TimeUnit}
 
+import akka.Done
 import akka.annotation.InternalApi
 import akka.japi.{Pair => AkkaPair}
 import akka.stream.alpakka.mqtt.streaming.Connect.ProtocolLevel
@@ -17,6 +18,7 @@ import scala.annotation.tailrec
 import scala.concurrent.duration._
 import scala.collection.JavaConverters._
 import scala.compat.java8.OptionConverters._
+import scala.concurrent.{ExecutionContext, Promise}
 
 /**
  * 2.2.1 MQTT Control Packet type
@@ -196,6 +198,10 @@ final case class Connect(protocolName: Connect.ProtocolName,
       Some(username),
       Some(password)
     )
+
+  override def toString: String =
+    s"""Connect(protocolName:$protocolName,protocolLevel:$protocolLevel,clientId:$clientId,connectFlags:$connectFlags,keepAlive:$keepAlive,willTopic:$willTopic,willMessage:$willMessage,username:$username,password:${password
+      .map(_ => "********")})"""
 }
 
 object ConnAckFlags {
@@ -288,6 +294,9 @@ final case class Publish @InternalApi private[streaming] (override val flags: Co
    */
   def this(topicName: String, payload: ByteString) =
     this(ControlPacketFlags.QoSAtLeastOnceDelivery, topicName, Some(PacketId(0)), payload)
+
+  override def toString: String =
+    s"""Publish(flags:$flags,topicName:$topicName,packetId:$packetId,payload:${payload.size}b)"""
 }
 
 /**
@@ -356,7 +365,7 @@ final case class Subscribe @InternalApi private[streaming] (packetId: PacketId,
    * http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
    */
   def this(topicFilters: java.util.List[AkkaPair[String, Integer]]) =
-    this(PacketId(0), topicFilters.asScala.map(v => v.first -> ControlPacketFlags(v.second)))
+    this(PacketId(0), topicFilters.asScala.toIndexedSeq.map(v => v.first -> ControlPacketFlags(v.second)))
 
   /**
    * A convenience for subscribing to a single topic with at-least-once semantics
@@ -379,7 +388,7 @@ final case class SubAck(packetId: PacketId, returnCodes: Seq[ControlPacketFlags]
    * http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
    */
   def this(packetId: PacketId, returnCodes: java.util.List[Integer]) =
-    this(packetId, returnCodes.asScala.map(v => ControlPacketFlags(v)))
+    this(packetId, returnCodes.asScala.toIndexedSeq.map(v => ControlPacketFlags(v)))
 }
 
 object Unsubscribe {
@@ -419,7 +428,7 @@ final case class Unsubscribe @InternalApi private[streaming] (packetId: PacketId
    * http://docs.oasis-open.org/mqtt/mqtt/v3.1.1/os/mqtt-v3.1.1-os.html
    */
   def this(topicFilters: java.util.List[String]) =
-    this(PacketId(0), topicFilters.asScala)
+    this(PacketId(0), topicFilters.asScala.toIndexedSeq)
 
   /**
    * A convenience for unsubscribing from a single topic
@@ -503,7 +512,14 @@ object MqttCodec {
                                      willMessage: Option[Either[MqttCodec.DecodeError, String]],
                                      username: Option[Either[MqttCodec.DecodeError, String]],
                                      password: Option[Either[MqttCodec.DecodeError, String]])
-      extends DecodeError
+      extends DecodeError {
+    override def toString: String =
+      s"""BadConnectMessage(clientId:$clientId,willTopic:$willTopic,willMessage:$willMessage,username:$username,password:${password
+        .map {
+          case Left(x) => s"Left($x)"
+          case Right(x) => s"Right(" + x.map(_ => "********") + ")"
+        }})"""
+  }
 
   /**
    * A reserved QoS was specified
@@ -521,7 +537,10 @@ object MqttCodec {
   final case class BadPublishMessage(topicName: Either[DecodeError, String],
                                      packetId: Option[PacketId],
                                      payload: ByteString)
-      extends DecodeError
+      extends DecodeError {
+    override def toString: String =
+      s"""BadPublishMessage(topicName:$topicName,packetId:$packetId,payload:${payload.size}b)"""
+  }
 
   /**
    * Something is wrong with the subscribe message
@@ -1069,10 +1088,14 @@ object Command {
  * Send a command to an MQTT session with optional data to carry through
  * into any related event.
  * @param command The command to send
+ * @param completed A promise that is completed by the session when the command has been processed -
+ *                  useful for synchronizing when activities should occur in relation to a command
+ *                  The only command that supports this presently is SubAck on the server side. This
+ *                  is because it is important to know when to start publishing.
  * @param carry The data to carry though
  * @tparam A The type of data to carry through
  */
-final case class Command[A](command: ControlPacket, carry: Option[A]) {
+final case class Command[A](command: ControlPacket, completed: Option[Promise[Done]], carry: Option[A]) {
 
   /**
    * JAVA API
@@ -1080,17 +1103,30 @@ final case class Command[A](command: ControlPacket, carry: Option[A]) {
    * Send a command to an MQTT session with optional data to carry through
    * into any related event.
    * @param command The command to send
+   * @param completed A promise that is completed by the session when the command has been processed -
+   *                  useful for synchronizing when activities should occur in relation to a command
+   *                  The only command that supports this presently is SubAck on the server side. This
+   *                  is because it is important to know when to start publishing.
    * @param carry The data to carry though
    */
-  def this(command: ControlPacket, carry: Optional[A]) =
-    this(command, carry.asScala)
+  def this(command: ControlPacket, completed: Optional[CompletionStage[Done]], carry: Optional[A]) =
+    this(
+      command,
+      completed.asScala.map { f =>
+        val p = Promise[Done]
+        p.future
+          .foreach(f.toCompletableFuture.complete)(ExecutionContext.fromExecutorService(ForkJoinPool.commonPool()))
+        p
+      },
+      carry.asScala
+    )
 
   /**
    * Send a command to an MQTT session
    * @param command The command to send
    */
   def this(command: ControlPacket) =
-    this(command, None)
+    this(command, None, None)
 
   /**
    * Send a command to an MQTT session with data to carry through into
@@ -1099,7 +1135,7 @@ final case class Command[A](command: ControlPacket, carry: Option[A]) {
    * @param carry The data to carry through
    */
   def this(command: ControlPacket, carry: A) =
-    this(command, Some(carry))
+    this(command, None, Some(carry))
 }
 
 object Event {

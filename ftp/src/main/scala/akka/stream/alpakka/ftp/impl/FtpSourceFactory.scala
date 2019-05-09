@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.ftp.impl
@@ -35,6 +35,14 @@ private[ftp] trait FtpSourceFactory[FtpClient] { self =>
       _connectionSettings: S,
       _branchSelector: FtpFile => Boolean
   )(implicit _ftpLike: FtpLike[FtpClient, S]): FtpBrowserGraphStage[FtpClient, S] =
+    createBrowserGraph(_basePath, _connectionSettings, _branchSelector, _emitTraversedDirectories = false)
+
+  protected[this] def createBrowserGraph(
+      _basePath: String,
+      _connectionSettings: S,
+      _branchSelector: FtpFile => Boolean,
+      _emitTraversedDirectories: Boolean
+  )(implicit _ftpLike: FtpLike[FtpClient, S]): FtpBrowserGraphStage[FtpClient, S] =
     new FtpBrowserGraphStage[FtpClient, S] {
       lazy val name: String = ftpBrowserSourceName
       val basePath: String = _basePath
@@ -42,12 +50,21 @@ private[ftp] trait FtpSourceFactory[FtpClient] { self =>
       val ftpClient: () => FtpClient = self.ftpClient
       val ftpLike: FtpLike[FtpClient, S] = _ftpLike
       override val branchSelector: (FtpFile) => Boolean = _branchSelector
+      override val emitTraversedDirectories: Boolean = _emitTraversedDirectories
     }
 
   protected[this] def createIOSource(
       _path: String,
       _connectionSettings: S,
       _chunkSize: Int
+  )(implicit _ftpLike: FtpLike[FtpClient, S]): FtpIOSourceStage[FtpClient, S] =
+    createIOSource(_path, _connectionSettings, _chunkSize, 0L)
+
+  protected[this] def createIOSource(
+      _path: String,
+      _connectionSettings: S,
+      _chunkSize: Int,
+      _offset: Long
   )(implicit _ftpLike: FtpLike[FtpClient, S]): FtpIOSourceStage[FtpClient, S] =
     new FtpIOSourceStage[FtpClient, S] {
       lazy val name: String = ftpIOSourceName
@@ -56,6 +73,7 @@ private[ftp] trait FtpSourceFactory[FtpClient] { self =>
       val ftpClient: () => FtpClient = self.ftpClient
       val ftpLike: FtpLike[FtpClient, S] = _ftpLike
       val chunkSize: Int = _chunkSize
+      override val offset: Long = _offset
     }
 
   protected[this] def createIOSink(

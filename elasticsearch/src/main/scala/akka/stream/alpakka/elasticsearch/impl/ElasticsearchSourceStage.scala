@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.elasticsearch.impl
@@ -49,6 +49,7 @@ private[elasticsearch] final class ElasticsearchSourceStage[T](indexName: String
                                                                settings: ElasticsearchSourceSettings,
                                                                reader: MessageReader[T])
     extends GraphStage[SourceShape[ReadResult[T]]] {
+  require(indexName != null, "You must define an index name")
 
   val out: Outlet[ReadResult[T]] = Outlet("ElasticsearchSource.out")
   override val shape: SourceShape[ReadResult[T]] = SourceShape(out)

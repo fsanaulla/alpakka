@@ -5,8 +5,8 @@ Alpakka [![scaladex-badge][]][scaladex] [![maven-central-badge][]][maven-central
 [scaladex-badge]:        https://index.scala-lang.org/akka/alpakka/latest.svg
 [maven-central]:         https://search.maven.org/#search%7Cga%7C1%7Cakka-stream-alpakka
 [maven-central-badge]:   https://maven-badges.herokuapp.com/maven-central/com.lightbend.akka/akka-stream-alpakka-file_2.12/badge.svg
-[travis]:                https://travis-ci.org/akka/alpakka
-[travis-badge]:          https://travis-ci.org/akka/alpakka.svg?branch=master
+[travis]:                https://travis-ci.com/akka/alpakka
+[travis-badge]:          https://travis-ci.com/akka/alpakka.svg?branch=master
 [gitter]:                https://gitter.im/akka/akka
 [gitter-badge]:          https://badges.gitter.im/akka/akka.svg
 
@@ -18,7 +18,7 @@ The Alpakka project is an open source initiative to implement stream-aware, reac
 Documentation
 -------------
 
-- [Alpakka reference](http://developer.lightbend.com/docs/alpakka/current/) documentation 
+- [Alpakka reference](https://doc.akka.io/docs/alpakka/current/) documentation
 
 - [Alpakka Kafka connector reference](https://doc.akka.io/docs/akka-stream-kafka/current/) documentation
 

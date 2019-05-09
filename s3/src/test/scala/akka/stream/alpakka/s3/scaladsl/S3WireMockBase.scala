@@ -1,23 +1,27 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.s3.scaladsl
 
 import akka.actor.ActorSystem
-import akka.stream.alpakka.s3.impl.ServerSideEncryption
+import akka.stream.alpakka.s3.S3Settings
+import akka.stream.alpakka.s3.headers.ServerSideEncryption
+import akka.stream.alpakka.s3.impl.S3Stream
 import akka.stream.alpakka.s3.scaladsl.S3WireMockBase._
 import akka.testkit.TestKit
 import com.github.tomakehurst.wiremock.WireMockServer
 import com.github.tomakehurst.wiremock.client.WireMock
 import com.github.tomakehurst.wiremock.client.WireMock._
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration._
-import com.github.tomakehurst.wiremock.matching.EqualToPattern
+import com.github.tomakehurst.wiremock.matching.{ContainsPattern, EqualToPattern}
 import com.github.tomakehurst.wiremock.stubbing.Scenario
+import com.typesafe.config.ConfigFactory
 
 abstract class S3WireMockBase(_system: ActorSystem, _wireMockServer: WireMockServer) extends TestKit(_system) {
 
-  def this(mock: WireMockServer) = this(ActorSystem(getCallerName(getClass)), mock)
+  def this(mock: WireMockServer) =
+    this(ActorSystem(getCallerName(getClass), config(mock.port()).withFallback(ConfigFactory.load())), mock)
   def this() = this(initServer())
 
   val mock = new WireMock("localhost", _wireMockServer.port())
@@ -70,14 +74,32 @@ abstract class S3WireMockBase(_system: ActorSystem, _wireMockServer: WireMockSer
 
   val sseCustomerKey = "key"
   val sseCustomerMd5Key = "md5"
-  val sseCustomerKeys = ServerSideEncryption.CustomerKeys(sseCustomerKey, Some(sseCustomerMd5Key))
+  val sseCustomerKeys = ServerSideEncryption.customerKeys(sseCustomerKey).withMd5(sseCustomerMd5Key)
 
   def mockDownload(): Unit =
     mock
       .register(
         get(urlEqualTo(s"/$bucketKey")).willReturn(
-          aResponse().withStatus(200).withHeader("ETag", """"fba9dede5f27731c9771645a39863328"""").withBody(body)
+          aResponse()
+            .withStatus(200)
+            .withHeader("ETag", """"fba9dede5f27731c9771645a39863328"""")
+            .withHeader("Content-Length", body.length.toString)
+            .withBody(body)
         )
+      )
+
+  def mockDownload(region: String): Unit =
+    mock
+      .register(
+        get(urlEqualTo(s"/$bucketKey"))
+          .withHeader("Authorization", new ContainsPattern(region))
+          .willReturn(
+            aResponse()
+              .withStatus(200)
+              .withHeader("ETag", """"fba9dede5f27731c9771645a39863328"""")
+              .withHeader("Content-Length", body.length.toString)
+              .withBody(body)
+          )
       )
 
   def mockDownloadSSEC(): Unit =
@@ -407,6 +429,7 @@ abstract class S3WireMockBase(_system: ActorSystem, _wireMockServer: WireMockSer
   }
 
   def mockCopy(): Unit = mockCopy(body.length)
+  def mockCopyMinChunkSize(): Unit = mockCopy(S3Stream.MinChunkSize)
   def mockCopy(expectedContentLength: Int): Unit = {
     mock.register(
       head(urlEqualTo(s"/$bucketKey"))
@@ -719,6 +742,36 @@ abstract class S3WireMockBase(_system: ActorSystem, _wireMockServer: WireMockSer
         )
     )
   }
+
+  def mockMakingBucket(): Unit =
+    mock.register(
+      put(urlEqualTo("/")).willReturn(
+        aResponse()
+          .withStatus(200)
+      )
+    )
+
+  def mockDeletingBucket(): Unit = mock.register(
+    delete(urlEqualTo("/")).willReturn(
+      aResponse()
+        .withStatus(200)
+    )
+  )
+
+  def mockCheckingBucketStateForNonExistingBucket(): Unit =
+    mock.register(
+      head(urlEqualTo("/")).willReturn(aResponse().withStatus(404))
+    )
+
+  def mockCheckingBucketStateForExistingBucket(): Unit =
+    mock.register(
+      head(urlEqualTo("/")).willReturn(aResponse().withStatus(200))
+    )
+
+  def mockCheckingBucketStateForBucketWithoutRights(): Unit =
+    mock.register(
+      head(urlEqualTo("/")).willReturn(aResponse().withStatus(403))
+    )
 }
 
 private object S3WireMockBase {
@@ -744,4 +797,22 @@ private object S3WireMockBase {
     server.start()
     server
   }
+
+  private def config(proxyPort: Int) = ConfigFactory.parseString(s"""
+    |${S3Settings.ConfigPath} {
+    |  aws {
+    |    credentials {
+    |      provider = static
+    |      access-key-id = my-AWS-access-key-ID
+    |      secret-access-key = my-AWS-password
+    |    }
+    |    region {
+    |      provider = static
+    |      default-region = "us-east-1"
+    |    }
+    |  }
+    |  path-style-access = false
+    |  endpoint-url = "http://localhost:$proxyPort"
+    |}
+    """.stripMargin)
 }

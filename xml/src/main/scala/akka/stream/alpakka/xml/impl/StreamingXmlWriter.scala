@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.xml.impl
@@ -97,5 +97,14 @@ import javax.xml.stream.XMLOutputFactory
       }
 
       override def onPull(): Unit = pull(in)
+
+      override def onUpstreamFinish(): Unit = {
+        output.flush()
+        val finalData = byteStringBuilder.result().compact
+        if (finalData.length != 0) {
+          emit(out, finalData)
+        }
+        super.onUpstreamFinish()
+      }
     }
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.dynamodb.impl
@@ -36,7 +36,7 @@ private[dynamodb] class DynamoClientImpl(
   override protected val connection: AwsConnect = {
     val poolSettings = ConnectionPoolSettings(system)
       .withMaxConnections(settings.parallelism)
-      .withMaxOpenRequests(settings.parallelism)
+      .withMaxOpenRequests(settings.maxOpenRequests.getOrElse(settings.parallelism))
     if (settings.tls)
       Http().cachedHostConnectionPoolHttps[AwsRequestMetadata](settings.host, settings = poolSettings)
     else

@@ -26,6 +26,14 @@ The table below shows direct dependencies of this module and the second tab show
 @@dependencies { projectId="sqs" }
 
 
+@@@warning { title="API may change" }
+
+The Alpakka SQS API may change as it could support [SQS FiFo queues with little effort](https://github.com/akka/alpakka/pull/1604). That and a few other possible enhancements let us open up for API changes within the 1.0.x releases of Alpakka.
+
+See [Alpakka SQS issues](https://github.com/akka/alpakka/labels/p%3Aaws-sqs)
+
+@@@
+
 ## Setup
 
 Prepare an @scaladoc[ActorSystem](akka.actor.ActorSystem) and a @scaladoc[Materializer](akka.stream.Materializer).
@@ -328,15 +336,16 @@ Options:
 
 ## Integration testing
 
-For integration testing without touching Amazon SQS, Alpakka uses [ElasticMQ](https://github.com/adamw/elasticmq).
-
+For integration testing without touching Amazon SQS, Alpakka uses [ElasticMQ](https://github.com/adamw/elasticmq), 
+a queuing service which serves an AWS SQS compatible API.
 
 ### Running the example code
 
 The code in this guide is part of runnable tests of this project. You are welcome to edit the code and run it in sbt.
 
-> The test code uses embedded [ElasticMQ](https://github.com/adamw/elasticmq) as queuing service which serves an AWS SQS
-> compatible API.
+> The code requires ElasticMQ running in the background. You can start it quickly using docker:
+>
+> `docker-compose up elasticmq`
 
 Scala
 :   ```

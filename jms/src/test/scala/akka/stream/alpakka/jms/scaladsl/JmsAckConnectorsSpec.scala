@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.stream.alpakka.jms.scaladsl
@@ -11,11 +11,10 @@ import akka.stream.alpakka.jms._
 import akka.stream.scaladsl.{Flow, Keep, Sink, Source}
 import akka.stream.{KillSwitches, ThrottleMode}
 import javax.jms.{JMSException, TextMessage}
-import org.apache.activemq.ActiveMQConnectionFactory
 import org.scalatest.Inspectors._
 
 import scala.annotation.tailrec
-import scala.collection.{mutable, SortedSet}
+import scala.collection.mutable
 import scala.concurrent.Future
 import scala.concurrent.duration._
 import scala.util.{Failure, Success}
@@ -25,9 +24,7 @@ class JmsAckConnectorsSpec extends JmsSpec {
   override implicit val patienceConfig = PatienceConfig(2.minutes)
 
   "The JMS Ack Connectors" should {
-    "publish and consume strings through a queue" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
-
+    "publish and consume strings through a queue" in withConnectionFactory() { connectionFactory =>
       val jmsSink: Sink[String, Future[Done]] = JmsProducer.textSink(
         JmsProducerSettings(producerConfig, connectionFactory).withQueue("test")
       )
@@ -48,49 +45,49 @@ class JmsAckConnectorsSpec extends JmsSpec {
       result.futureValue should contain theSameElementsAs in
     }
 
-    "publish and consume JMS text messages with properties through a queue" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "publish and consume JMS text messages with properties through a queue" in withConnectionFactory() {
+      connectionFactory =>
+        val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer
+          .sink(
+            JmsProducerSettings(producerConfig, connectionFactory).withQueue("numbers")
+          )
 
-      val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer(
-        JmsProducerSettings(producerConfig, connectionFactory).withQueue("numbers")
-      )
-
-      val msgsIn = 1 to 100 map { n =>
-        JmsTextMessage(n.toString)
-          .withProperty("Number", n)
-          .withProperty("IsOdd", n % 2 == 1)
-          .withProperty("IsEven", n % 2 == 0)
-      }
-
-      Source(msgsIn).runWith(jmsSink)
-
-      val jmsSource: Source[AckEnvelope, JmsConsumerControl] = JmsConsumer.ackSource(
-        JmsConsumerSettings(system, connectionFactory).withSessionCount(5).withBufferSize(0).withQueue("numbers")
-      )
-
-      val result = jmsSource
-        .take(msgsIn.size)
-        .map { env =>
-          env.acknowledge()
-          env.message
+        val msgsIn = 1 to 100 map { n =>
+          JmsTextMessage(n.toString)
+            .withProperty("Number", n)
+            .withProperty("IsOdd", n % 2 == 1)
+            .withProperty("IsEven", n % 2 == 0)
         }
-        .runWith(Sink.seq)
 
-      // The sent message and the receiving one should have the same properties
-      val sortedResult = result.futureValue.sortBy(msg => msg.getIntProperty("Number"))
-      forAll(sortedResult.zip(msgsIn)) {
-        case (out, in) =>
-          out.getIntProperty("Number") shouldEqual in.properties("Number")
-          out.getBooleanProperty("IsOdd") shouldEqual in.properties("IsOdd")
-          out.getBooleanProperty("IsEven") shouldEqual in.properties("IsEven")
-      }
+        Source(msgsIn).runWith(jmsSink)
+
+        val jmsSource: Source[AckEnvelope, JmsConsumerControl] = JmsConsumer.ackSource(
+          JmsConsumerSettings(system, connectionFactory).withSessionCount(5).withBufferSize(0).withQueue("numbers")
+        )
+
+        val result = jmsSource
+          .take(msgsIn.size)
+          .map { env =>
+            env.acknowledge()
+            env.message
+          }
+          .runWith(Sink.seq)
+
+        // The sent message and the receiving one should have the same properties
+        val sortedResult = result.futureValue.sortBy(msg => msg.getIntProperty("Number"))
+        forAll(sortedResult.zip(msgsIn)) {
+          case (out, in) =>
+            out.getIntProperty("Number") shouldEqual in.properties("Number")
+            out.getBooleanProperty("IsOdd") shouldEqual in.properties("IsOdd")
+            out.getBooleanProperty("IsEven") shouldEqual in.properties("IsEven")
+        }
     }
 
     "publish JMS text messages with properties through a queue and consume them with a selector" in withServer() {
-      ctx =>
-        val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+      server =>
+        val connectionFactory = server.createConnectionFactory
 
-        val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer(
+        val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer.sink(
           JmsProducerSettings(producerConfig, connectionFactory).withQueue("numbers")
         )
 
@@ -130,8 +127,8 @@ class JmsAckConnectorsSpec extends JmsSpec {
         }
     }
 
-    "applying backpressure when the consumer is slower than the producer" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "applying backpressure when the consumer is slower than the producer" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
       val in = 0 to 25 map (i => ('a' + i).asInstanceOf[Char].toString)
       Source(in).runWith(JmsProducer.textSink(JmsProducerSettings(producerConfig, connectionFactory).withQueue("test")))
 
@@ -149,8 +146,8 @@ class JmsAckConnectorsSpec extends JmsSpec {
       result.futureValue should contain theSameElementsAs in
     }
 
-    "disconnection should fail the stage after exhausting retries" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "disconnection should fail the stage after exhausting retries" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
       val result = JmsConsumer
         .ackSource(
           JmsConsumerSettings(system, connectionFactory)
@@ -161,17 +158,13 @@ class JmsAckConnectorsSpec extends JmsSpec {
         )
         .runWith(Sink.seq)
       Thread.sleep(500)
-      ctx.broker.stop()
+      server.stop()
       val ex = result.failed.futureValue
       ex shouldBe a[ConnectionRetryException]
       ex.getCause shouldBe a[JMSException]
     }
 
-    "publish and consume elements through a topic " in withServer() { ctx =>
-      import system.dispatcher
-
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
-
+    "publish and consume elements through a topic " in withConnectionFactory() { connectionFactory =>
       val jmsTopicSink: Sink[String, Future[Done]] = JmsProducer.textSink(
         JmsProducerSettings(producerConfig, connectionFactory).withTopic("topic")
       )
@@ -188,6 +181,8 @@ class JmsAckConnectorsSpec extends JmsSpec {
       val jmsSource2: Source[AckEnvelope, JmsConsumerControl] = JmsConsumer.ackSource(
         JmsConsumerSettings(system, connectionFactory).withSessionCount(1).withBufferSize(0).withTopic("topic")
       )
+
+      import scala.concurrent.ExecutionContext.Implicits.global
 
       val expectedSize = in.size + inNumbers.size
       val result1 = jmsTopicSource
@@ -214,10 +209,10 @@ class JmsAckConnectorsSpec extends JmsSpec {
       result2.futureValue should contain theSameElementsAs expectedList
     }
 
-    "ensure no message loss when stopping a stream" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "ensure no message loss when stopping a stream" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
 
-      val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer(
+      val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer.sink(
         JmsProducerSettings(producerConfig, connectionFactory).withQueue("numbers")
       )
 
@@ -285,13 +280,13 @@ class JmsAckConnectorsSpec extends JmsSpec {
 
       killSwitch2.shutdown()
 
-      resultList.to[SortedSet] should contain theSameElementsAs numsIn.map(_.toString)
+      resultList.toSet should contain theSameElementsAs numsIn.map(_.toString)
     }
 
-    "ensure no message loss when aborting a stream" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "ensure no message loss when aborting a stream" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
 
-      val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer(
+      val jmsSink: Sink[JmsTextMessage, Future[Done]] = JmsProducer.sink(
         JmsProducerSettings(producerConfig, connectionFactory).withQueue("numbers")
       )
 
@@ -365,11 +360,11 @@ class JmsAckConnectorsSpec extends JmsSpec {
       implicit val _ = Ordering.by { s: String =>
         s.toInt
       }
-      resultList.to[SortedSet] should contain theSameElementsAs numsIn.map(_.toString)
+      resultList.toSet should contain theSameElementsAs numsIn.map(_.toString)
     }
 
-    "shutdown when waiting to acknowledge messages" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "shutdown when waiting to acknowledge messages" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
 
       val in = 0 to 25 map (i => ('a' + i).asInstanceOf[Char].toString)
       Source(in).runWith(JmsProducer.textSink(JmsProducerSettings(producerConfig, connectionFactory).withQueue("test")))
@@ -390,8 +385,8 @@ class JmsAckConnectorsSpec extends JmsSpec {
       streamDone.futureValue shouldBe Done
     }
 
-    "abort when waiting to acknowledge messages" in withServer() { ctx =>
-      val connectionFactory = new ActiveMQConnectionFactory(ctx.url)
+    "abort when waiting to acknowledge messages" in withServer() { server =>
+      val connectionFactory = server.createConnectionFactory
 
       val in = 0 to 25 map (i => ('a' + i).asInstanceOf[Char].toString)
       Source(in).runWith(JmsProducer.textSink(JmsProducerSettings(producerConfig, connectionFactory).withQueue("test")))

@@ -76,6 +76,7 @@ In the above examples, `WriteMessage` is used as the input to `ElasticsearchSink
 | Message factory           | Description                                                                                          |
 | ---------------------- | ---------------------------------------------------------------------------------------------------- |
 | WriteMessage.createIndexMessage   | Create a new document. If `id` is specified and it already exists, do nothing.                       |
+| WriteMessage.createCreateMessage  | Create a new document. If `id` already exists, the `WriteResult` will contain an error.                  |
 | WriteMessage.createUpdateMessage  | Update an existing document. If there is no document with the specified `id`, do nothing.            |
 | WriteMessage.createUpsertMessage  | Update an existing document. If there is no document with the specified `id`, create a new document. |
 | WriteMessage.createDeleteMessage  | Delete an existing document. If there is no document with the specified `id`, do nothing.            |
@@ -117,7 +118,7 @@ Java
 
 | Parameter           | Default | Description                                                                                            |
 | ------------------- | ------- | ------------------------------------------------------------------------------------------------------ |
-| bufferSize          | 10      | `ElasticsearchSink` puts messages by one bulk request per messages of this buffer size.                |
+| bufferSize          | 10      | Flow and Sink batch messages to bulk requests when back-pressure applies.                             |
 | versionType         | None    | If set, `ElasticsearchSink` uses the chosen versionType to index documents. See [Version types](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-index_.html#_version_types) for accepted settings. |
 | retryLogic | No retries | See below |
 
@@ -125,7 +126,7 @@ Java
 A bulk request might fail partially for some reason. To retry failed writes to Elasticsearch, a `RetryLogic` can be specified. The provided implementation is `RetryAtFixedRate`.
 
 @@@ warning
-If using retries, you will receive messages out of order downstream in cases where elastic returns an error one some of the documents in a bulk request.
+If using retries, you will receive messages **out of order downstream** in cases when Elasticsearch returns an error on some of the documents in a bulk request.
 @@@
 
 

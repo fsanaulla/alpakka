@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2016-2018 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2016-2019 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package docs.scaladsl
@@ -39,7 +39,7 @@ class ExampleUsage {
   val projectId = "test-XXXXX"
   val apiKey = "AIzaSyCVvqrlz057gCssc70n5JERyTW4TpB4ebE"
 
-  val config = PubSubConfig(projectId, apiKey, clientEmail, privateKey)
+  val config = PubSubConfig(projectId, clientEmail, privateKey)
 
   val topic = "topic1"
   val subscription = "subscription1"
